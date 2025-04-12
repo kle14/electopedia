@@ -1,8 +1,20 @@
 from fastapi import FastAPI, HTTPException
 import requests
 from functools import lru_cache
+from fastapi.middleware.cors import CORSMiddleware
+
 
 app = FastAPI()
+
+# Add this right after creating your FastAPI app instance
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In development; restrict this in production
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 
 # URLs for the JSON data
 DATA_URLS = [
@@ -62,7 +74,6 @@ def search_politician(query):
             print(f"Error processing {url}: {str(e)}")
 
     return results
-
 
 
 @app.get("/query={politician_name}")
