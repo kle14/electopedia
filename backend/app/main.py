@@ -1,87 +1,84 @@
 from fastapi import FastAPI, HTTPException
-import yaml
-import pathlib
+import requests
 from functools import lru_cache
 
 app = FastAPI()
 
-# Define the path to congress-legislators data
-BASE_DIR = pathlib.Path(__file__).parent.parent  # Navigate to backend folder
-DATA_DIR = BASE_DIR / "data" / "congress-legislators"
+# URLs for the JSON data
+DATA_URLS = [
+    "https://unitedstates.github.io/congress-legislators/legislators-current.json",
+    "https://unitedstates.github.io/congress-legislators/legislators-historical.json",
+    "https://unitedstates.github.io/congress-legislators/executive.json",
+    "https://unitedstates.github.io/congress-legislators/legislators-social-media.json",
+    "https://unitedstates.github.io/congress-legislators/committees-current.json",
+    "https://unitedstates.github.io/congress-legislators/committee-membership-current.json",
+    "https://unitedstates.github.io/congress-legislators/committees-historical.json",
+    "https://unitedstates.github.io/congress-legislators/legislators-district-offices.json"
+]
 
 
-@lru_cache(maxsize=1)
-def load_legislators_data():
-    """Load legislator data from YAML files and cache it"""
+@lru_cache(maxsize=len(DATA_URLS))
+def fetch_data(url):
+    """Fetch and cache JSON data from a URL"""
     try:
-        # Load current legislators
-        with open(DATA_DIR / "legislators-current.yaml", "r") as f:
-            current = yaml.safe_load(f)
-
-        # Load historical legislators
-        with open(DATA_DIR / "legislators-historical.yaml", "r") as f:
-            historical = yaml.safe_load(f)
-
-        # Load executives (presidents and vice presidents)
-        with open(DATA_DIR / "executive.yaml", "r") as f:
-            executives = yaml.safe_load(f)
-
-        return current, historical, executives
-    except FileNotFoundError:
-        raise HTTPException(
-            status_code=500,
-            detail=f"Data files not found. Make sure congress-legislators repository is correctly cloned at {DATA_DIR}"
-        )
+        response = requests.get(url)
+        response.raise_for_status()
+        return response.json()
     except Exception as e:
         raise HTTPException(
-            status_code=500, detail=f"Error loading data: {str(e)}")
+            status_code=500, detail=f"Error fetching data from {url}: {str(e)}")
 
 
-def search_politician(query: str):
-    """Search for politicians by name"""
-    current, historical, executives = load_legislators_data()
-    query = query.lower().replace("_", " ")
+def search_politician(query):
+    """Search for a politician across all data sources"""
+    query = query.lower().replace("_", " ").strip()
     results = []
 
-    # Search through all sources
-    all_politicians = current + historical + executives
+    # Search through all data sources
+    for url in DATA_URLS:
+        data = fetch_data(url)
+        source_name = url.split("/")[-1].replace(".json", "")
 
-    for politician in all_politicians:
-        name = politician.get("name", {})
-        first = name.get("first", "").lower()
-        last = name.get("last", "").lower()
-        middle = name.get("middle", "").lower()
+        for item in data:
+            # Skip if this is not a person record
+            if not isinstance(item, dict) or "name" not in item:
+                continue
 
-        # Create full name for matching
-        full_name = " ".join(filter(None, [first, middle, last])).lower()
+            name = item.get("name", {})
 
-        # Check for matches
-        if query == first or query == last or query in full_name:
-            results.append(politician)
+            # Extract name components
+            first = name.get("first", "").lower() if name else ""
+            last = name.get("last", "").lower() if name else ""
+            middle = name.get("middle", "").lower() if name else ""
+
+            # Build different name formats for matching
+            full_name = f"{first} {last}".lower()
+            full_name_with_middle = f"{first} {middle} {last}".lower().strip()
+
+            # Check for match in name
+            if (query in full_name or
+                query in full_name_with_middle or
+                query == first or
+                    query == last):
+
+                # Add source information
+                item["data_source"] = source_name
+                results.append(item)
 
     return results
 
+@app.get("/query={politician_name}")
+async def get_politician(politician_name: str):
+    try:
+        results = search_politician(politician_name)
 
-@app.get("/")
-def read_root():
-    return {"message": "Hello, FastAPI with uv!"}
+        if not results:
+            return {"message": f"No data found for '{politician_name}'", "count": 0, "results": []}
 
-# Define a path parameter route that captures the query format
-
-
-@app.get("/{path:path}")
-def process_query(path: str):
-    if path.startswith("query="):
-        query = path[6:]  # Remove "query=" prefix
-        try:
-            results = search_politician(query)
-            if not results:
-                return {"message": f"No results found for '{query}'", "results": []}
-            return {"results": results}
-        except HTTPException as e:
-            raise e
-        except Exception as e:
-            raise HTTPException(
-                status_code=500, detail=f"An error occurred: {str(e)}")
-    else:
-        return {"message": "Invalid path. Use /query=politician_name"}
+        return {
+            "message": f"Found {len(results)} results for '{politician_name}'",
+            "count": len(results),
+            "results": results
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
