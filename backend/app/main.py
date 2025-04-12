@@ -2,7 +2,7 @@ from fastapi import FastAPI, HTTPException
 import requests
 from functools import lru_cache
 from fastapi.middleware.cors import CORSMiddleware
-
+import wikipedia
 
 app = FastAPI()
 
@@ -69,6 +69,8 @@ def search_politician(query):
 
                     # Add source information
                     item["data_source"] = source_name
+                    summary = wikipedia.summary(full_name)
+                    item["summary"] = summary
                     results.append(item)
         except Exception as e:
             print(f"Error processing {url}: {str(e)}")
