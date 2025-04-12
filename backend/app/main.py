@@ -9,11 +9,6 @@ DATA_URLS = [
     "https://unitedstates.github.io/congress-legislators/legislators-current.json",
     "https://unitedstates.github.io/congress-legislators/legislators-historical.json",
     "https://unitedstates.github.io/congress-legislators/executive.json",
-    "https://unitedstates.github.io/congress-legislators/legislators-social-media.json",
-    "https://unitedstates.github.io/congress-legislators/committees-current.json",
-    "https://unitedstates.github.io/congress-legislators/committee-membership-current.json",
-    "https://unitedstates.github.io/congress-legislators/committees-historical.json",
-    "https://unitedstates.github.io/congress-legislators/legislators-district-offices.json"
 ]
 
 
@@ -32,40 +27,43 @@ def fetch_data(url):
 def search_politician(query):
     """Search for a politician across all data sources"""
     query = query.lower().replace("_", " ").strip()
+    print(f"Searching for '{query}'")
     results = []
 
     # Search through all data sources
     for url in DATA_URLS:
-        data = fetch_data(url)
-        source_name = url.split("/")[-1].replace(".json", "")
+        try:
+            data = fetch_data(url)
+            source_name = url.split("/")[-1].replace(".json", "")
 
-        for item in data:
-            # Skip if this is not a person record
-            if not isinstance(item, dict) or "name" not in item:
-                continue
+            for item in data:
+                # Skip if this is not a person record with a name
+                if not isinstance(item, dict) or "name" not in item:
+                    continue
 
-            name = item.get("name", {})
+                name = item.get("name", {})
 
-            # Extract name components
-            first = name.get("first", "").lower() if name else ""
-            last = name.get("last", "").lower() if name else ""
-            middle = name.get("middle", "").lower() if name else ""
+                # Extract name components
+                first = name.get("first", "").lower() if name else ""
+                last = name.get("last", "").lower() if name else ""
 
-            # Build different name formats for matching
-            full_name = f"{first} {last}".lower()
-            full_name_with_middle = f"{first} {middle} {last}".lower().strip()
+                # Build different name formats for matching
+                full_name = f"{first} {last}".lower()
 
-            # Check for match in name
-            if (query in full_name or
-                query in full_name_with_middle or
-                query == first or
-                    query == last):
+                # Check for match in name
+                if (query in full_name or
+                    query == first or
+                        query == last):
 
-                # Add source information
-                item["data_source"] = source_name
-                results.append(item)
+                    # Add source information
+                    item["data_source"] = source_name
+                    results.append(item)
+        except Exception as e:
+            print(f"Error processing {url}: {str(e)}")
 
     return results
+
+
 
 @app.get("/query={politician_name}")
 async def get_politician(politician_name: str):
